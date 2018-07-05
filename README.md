@@ -3,7 +3,7 @@ Implementation of ResidualNet on CIFAR-10 dataset. test model with various optio
 
 ## 여러개의 모델을 한 스크립트 안에서 돌릴려면,
 
-###그래프를 따로 만들어줘야 한다.
+### 그래프를 따로 만들어줘야 한다.
 model=ResNet.ResNet(batch_size, learning_rate)
 model.run(max_epoch, model_kind=1)
 
@@ -21,7 +21,7 @@ class ResNet:
         with self.graph.as_default() :
           sess = tf.Session()
           
-###혹은 변수들의 scope를 다르게 설정해준다.
+### 혹은 변수들의 scope를 다르게 설정해준다.
 class ResNet:
      def build1(self, input, label, is_training=False):
          with tf.variable_scope('model1'):
