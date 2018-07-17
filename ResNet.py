@@ -11,8 +11,9 @@ http://solarisailab.com/archives/2325
 """
 
 class ResNet:
-    def __init__(self, input_size, lr):
+    def __init__(self, input_size, lr, wd):
         self.lr = lr
+        self.wd = wd
         self.input_size = input_size
 
         self.graph = tf.Graph()
@@ -20,111 +21,95 @@ class ResNet:
     ###########################논문에서는 CIFAR-10의 경우 보틀넥도, 프로젝션 숏컷도 사용하지 않았지만
     ###########################이 실험에서는 각각의 사용유무에 따른 4개의 모델을 만들어 놓고 실험결과를 보도록 한다.
     def make_residual_bottleneck_block(self, input, ch, is_training, downsampling = False):
-        W1 = tf.Variable(tf.random_normal([1, 1, ch, ch//4], stddev=0.01), dtype=np.float32)
+        W1 = tf.Variable(tf.truncated_normal([1, 1, ch, ch//4], stddev=tf.sqrt(2/ch)), dtype=np.float32)
+        tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W1), self.wd))
         L1 = tf.nn.conv2d(input, W1, strides=[1, 1, 1, 1], padding='SAME')
-        b1 = tf.Variable(tf.random_normal([ch//4]), dtype=np.float32)
-        L1 = tf.nn.bias_add(L1, b1)
         L1 = tf.layers.batch_normalization(L1, training=is_training)
         L1 = tf.nn.relu(L1)
 
 
         if (downsampling) :
-            W2 = tf.Variable(tf.random_normal([3, 3, ch//4, ch//4 * 2], stddev=0.01), dtype=np.float32)
+            W2 = tf.Variable(tf.truncated_normal([3, 3, ch//4, ch//4 * 2], stddev=tf.sqrt(2/(ch//4))), dtype=np.float32)
+            tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W2), self.wd))
             L2 = tf.nn.conv2d(L1, W2, strides=[1, 2, 2, 1], padding='SAME')
-            b2 = tf.Variable(tf.random_normal([ch//4 * 2]), dtype=np.float32)
-            L2 = tf.nn.bias_add(L2, b2)
             L2 = tf.layers.batch_normalization(L2, training=is_training)
             L2 = tf.nn.relu(L2)
 
-            W3 = tf.Variable(tf.random_normal([1, 1, ch//4 * 2, ch * 2], stddev=0.01), dtype=np.float32)
+            W3 = tf.Variable(tf.truncated_normal([1, 1, ch//4 * 2, ch * 2], stddev=tf.sqrt(2/(ch//4 * 2))), dtype=np.float32)
+            tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W3), self.wd))
             L3 = tf.nn.conv2d(L2, W3, strides=[1, 1, 1, 1], padding='SAME')
-            b3 = tf.Variable(tf.random_normal([ch * 2]), dtype=np.float32)
-            L3 = tf.nn.bias_add(L3, b3)
+            L3 = tf.layers.batch_normalization(L3, training=is_training)
 
             ###Apply Projection to skip connection When DownSample
-            W_projection = tf.Variable(tf.random_normal([1, 1, ch, ch * 2], stddev=0.01), dtype=np.float32)
+            W_projection = tf.Variable(tf.truncated_normal([1, 1, ch, ch * 2], stddev=tf.sqrt(2/ch)), dtype=np.float32)
+            tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W_projection), self.wd))
             L_projection = tf.nn.conv2d(input, W_projection, strides = [1, 2, 2, 1],
                                         padding='SAME') #DownSample by strided 1x1 Convolution
 
             L4 = tf.add(L3, L_projection)
 
-            L4 = tf.layers.batch_normalization(L4, training=is_training)
-            L4 = tf.nn.relu(L4)
-
         else :
-            W2 = tf.Variable(tf.random_normal([3, 3, ch // 4, ch // 4], stddev=0.01), dtype=np.float32)
+            W2 = tf.Variable(tf.truncated_normal([3, 3, ch // 4, ch // 4], stddev=tf.sqrt(2/(ch//4))), dtype=np.float32)
+            tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W2), self.wd))
             L2 = tf.nn.conv2d(L1, W2, strides=[1, 1, 1, 1], padding='SAME')
-            b2 = tf.Variable(tf.random_normal([ch // 4]), dtype=np.float32)
-            L2 = tf.nn.bias_add(L2, b2)
             L2 = tf.layers.batch_normalization(L2, training=is_training)
             L2 = tf.nn.relu(L2)
 
-            W3 = tf.Variable(tf.random_normal([1, 1, ch // 4, ch], stddev=0.01), dtype=np.float32)
+            W3 = tf.Variable(tf.truncated_normal([1, 1, ch // 4, ch], stddev=tf.sqrt(2/(ch//4))), dtype=np.float32)
+            tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W3), self.wd))
             L3 = tf.nn.conv2d(L2, W3, strides=[1, 1, 1, 1], padding='SAME')
-            b3 = tf.Variable(tf.random_normal([ch]), dtype=np.float32)
-            L3 = tf.nn.bias_add(L3, b3)
+            L3 = tf.layers.batch_normalization(L3, training=is_training)
 
             L4 = tf.add(L3, input)
 
-            L4 = tf.layers.batch_normalization(L4, training=is_training)
-            L4 = tf.nn.relu(L4)
+        L4 = tf.nn.relu(L4)
 
         return L4
 
     def make_residual_block(self, input, ch, is_training, downsampling=False):
-        W1 = tf.Variable(tf.random_normal([3, 3, ch, ch], stddev=0.01), dtype=np.float32)
+        W1 = tf.Variable(tf.truncated_normal([3, 3, ch, ch], stddev=tf.sqrt(2/ch)), dtype=np.float32)
+        tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W1), self.wd))
         L1 = tf.nn.conv2d(input, W1, strides=[1, 1, 1, 1], padding='SAME')
-        b1 = tf.Variable(tf.random_normal([ch]), dtype=np.float32)
-        L1 = tf.nn.bias_add(L1, b1)
         L1 = tf.layers.batch_normalization(L1, training=is_training)
         L1 = tf.nn.relu(L1)
 
         if (downsampling):
-            W2 = tf.Variable(tf.random_normal([3, 3, ch, ch * 2], stddev=0.01), dtype=np.float32)
+            W2 = tf.Variable(tf.truncated_normal([3, 3, ch, ch * 2], stddev=tf.sqrt(2/ch)), dtype=np.float32)
+            tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W2), self.wd))
             L2 = tf.nn.conv2d(L1, W2, strides=[1, 2, 2, 1], padding='SAME')
-            b2 = tf.Variable(tf.random_normal([ch * 2]), dtype=np.float32)
-            L2 = tf.nn.bias_add(L2, b2)
             L2 = tf.layers.batch_normalization(L2, training=is_training)
-            L2 = tf.nn.relu(L2)
 
             ###Apply Projection to skip connection When DownSample
-            W_projection = tf.Variable(tf.random_normal([1, 1, ch, ch * 2], stddev=0.01), dtype=np.float32)
+            W_projection = tf.Variable(tf.truncated_normal([1, 1, ch, ch * 2], stddev=tf.sqrt(2/ch)), dtype=np.float32)
+            tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W_projection), self.wd))
             L_projection = tf.nn.conv2d(input, W_projection, strides=[1, 2, 2, 1],
                                         padding='SAME')  # DownSample by strided 1x1 Convolution
 
             L3 = tf.add(L2, L_projection)
 
-            L3 = tf.layers.batch_normalization(L3, training=is_training)
-            L3 = tf.nn.relu(L3)
-
         else:
-            W2 = tf.Variable(tf.random_normal([3, 3, ch, ch], stddev=0.01), dtype=np.float32)
+            W2 = tf.Variable(tf.truncated_normal([3, 3, ch, ch], stddev=tf.sqrt(2/ch)), dtype=np.float32)
+            tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W2), self.wd))
             L2 = tf.nn.conv2d(L1, W2, strides=[1, 1, 1, 1], padding='SAME')
-            b2 = tf.Variable(tf.random_normal([ch]), dtype=np.float32)
-            L2 = tf.nn.bias_add(L2, b2)
             L2 = tf.layers.batch_normalization(L2, training=is_training)
-            L2 = tf.nn.relu(L2)
 
             L3 = tf.add(L2, input)
 
-            L3 = tf.layers.batch_normalization(L3, training=is_training)
-            L3 = tf.nn.relu(L3)
+        L3 = tf.nn.relu(L3)
+
         return L3
 
     def make_residual_block_downsample_with_zero_padding(self, input, ch, is_training):
-        W1 = tf.Variable(tf.random_normal([3, 3, ch, ch], stddev=0.01), dtype=np.float32)
+        W1 = tf.Variable(tf.truncated_normal([3, 3, ch, ch], stddev=tf.sqrt(2/ch)), dtype=np.float32)
+        tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W1), self.wd))
         L1 = tf.nn.conv2d(input, W1, strides=[1, 1, 1, 1], padding='SAME')
-        b1 = tf.Variable(tf.random_normal([ch]), dtype=np.float32)
-        L1 = tf.nn.bias_add(L1, b1)
         L1 = tf.layers.batch_normalization(L1, training=is_training)
         L1 = tf.nn.relu(L1)
 
-        W2 = tf.Variable(tf.random_normal([3, 3, ch, ch * 2], stddev=0.01), dtype=np.float32)
+        W2 = tf.Variable(tf.truncated_normal([3, 3, ch, ch * 2], stddev=tf.sqrt(2/ch)), dtype=np.float32)
+        tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W2), self.wd))
         L2 = tf.nn.conv2d(L1, W2, strides=[1, 2, 2, 1], padding='SAME')
-        b2 = tf.Variable(tf.random_normal([ch * 2]), dtype=np.float32)
-        L2 = tf.nn.bias_add(L2, b2)
         L2 = tf.layers.batch_normalization(L2, training=is_training)
-        L2 = tf.nn.relu(L2)
 
         ###Apply Zero-Padding to skip connection When DownSample
         input = tf.nn.max_pool(input, ksize=[1, 1, 1, 1], strides=[1, 2, 2, 1], padding='SAME')
@@ -132,7 +117,6 @@ class ResNet:
 
         L3 = tf.add(L2, L_zero_padding)
 
-        L3 = tf.layers.batch_normalization(L3, training=is_training)
         L3 = tf.nn.relu(L3)
 
         return L3
@@ -143,10 +127,9 @@ class ResNet:
         return L_input
 
     def build1(self, input, label, is_training=False):   #########보틀넥 x 프로젝션 숏컷x (논문의 구현에 가장 충실한 모델)
-        W_input = tf.Variable(tf.random_normal([3, 3, 3, 16], stddev=0.01), dtype=np.float32)
+        W_input = tf.Variable(tf.truncated_normal([3, 3, 3, 16], stddev=0.1), dtype=np.float32)
+        tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W_input), self.wd))
         L_input = tf.nn.conv2d(input, W_input, strides=[1, 1, 1, 1], padding='SAME')
-        b_input = tf.Variable(tf.random_normal([16]), dtype=np.float32)
-        L_input = tf.nn.bias_add(L_input, b_input)
         L_input = tf.layers.batch_normalization(L_input, training=is_training)
         L_input = tf.nn.relu(L_input)
 
@@ -158,12 +141,13 @@ class ResNet:
 
         block5 = self.block_repeat(block4, self.make_residual_block, 64, is_training, 9)
 
-        GAP = tf.reduce_mean(block5, [1, 2], keepdims=False)
+        GAP = tf.reduce_mean(block5, [1, 2], keep_dims=False)
+        # GAP = tf.reduce_mean(block5, [1, 2], keepdims=False)
 
-        W_fc = tf.Variable(tf.random_normal([64, 10], stddev=0.01), dtype=np.float32)
-        b_fc = tf.Variable(tf.random_normal([10], stddev=0.01), dtype=np.float32)
+        W_fc = tf.Variable(tf.truncated_normal([64, 10], stddev=0.1), dtype=np.float32)
+        tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W_fc), self.wd))
 
-        logit = tf.matmul(GAP, W_fc) + b_fc
+        logit = tf.matmul(GAP, W_fc)
 
         prediction = tf.argmax(logit, axis=1)
 
@@ -200,10 +184,9 @@ class ResNet:
         return prediction, logit
 
     def build2(self, input, label, is_training=False):  #########보틀넥 x 프로젝션 숏컷o
-        W_input = tf.Variable(tf.random_normal([3, 3, 3, 16], stddev=0.01), dtype=np.float32)
+        W_input = tf.Variable(tf.truncated_normal([3, 3, 3, 16], stddev=0.1), dtype=np.float32)
+        tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W_input), self.wd))
         L_input = tf.nn.conv2d(input, W_input, strides=[1, 1, 1, 1], padding='SAME')
-        b_input = tf.Variable(tf.random_normal([16]), dtype=np.float32)
-        L_input = tf.nn.bias_add(L_input, b_input)
         L_input = tf.layers.batch_normalization(L_input, training=is_training)
         L_input = tf.nn.relu(L_input)
 
@@ -215,22 +198,22 @@ class ResNet:
 
         block5 = self.block_repeat(block4, self.make_residual_block, 64, is_training, 9)
 
-        GAP = tf.reduce_mean(block5, [1, 2], keepdims=False)
+        GAP = tf.reduce_mean(block5, [1, 2], keep_dims=False)
+        # GAP = tf.reduce_mean(block5, [1, 2], keepdims=False)
 
-        W_fc = tf.Variable(tf.random_normal([64, 10], stddev=0.01), dtype=np.float32)
-        b_fc = tf.Variable(tf.random_normal([10], stddev=0.01), dtype=np.float32)
+        W_fc = tf.Variable(tf.truncated_normal([64, 10], stddev=0.1), dtype=np.float32)
+        tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W_fc), self.wd))
 
-        logit = tf.matmul(GAP, W_fc) + b_fc
+        logit = tf.matmul(GAP, W_fc)
 
         prediction = tf.argmax(logit, axis=1)
 
         return prediction, logit
 
     def build3(self, input, label, is_training=False):  #########보틀넥 o 프로젝션 숏컷x
-        W_input = tf.Variable(tf.random_normal([3, 3, 3, 16], stddev=0.01), dtype=np.float32)
+        W_input = tf.Variable(tf.truncated_normal([3, 3, 3, 16], stddev=0.1), dtype=np.float32)
+        tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W_input), self.wd))
         L_input = tf.nn.conv2d(input, W_input, strides=[1, 1, 1, 1], padding='SAME')
-        b_input = tf.Variable(tf.random_normal([16]), dtype=np.float32)
-        L_input = tf.nn.bias_add(L_input, b_input)
         L_input = tf.layers.batch_normalization(L_input, training=is_training)
         L_input = tf.nn.relu(L_input)
 
@@ -242,22 +225,22 @@ class ResNet:
 
         block5 = self.block_repeat(block4, self.make_residual_bottleneck_block, 64, is_training, 9)
 
-        GAP = tf.reduce_mean(block5, [1, 2], keepdims=False)
+        GAP = tf.reduce_mean(block5, [1, 2], keep_dims=False)
+        # GAP = tf.reduce_mean(block5, [1, 2], keepdims=False)
 
-        W_fc = tf.Variable(tf.random_normal([64, 10], stddev=0.01), dtype=np.float32)
-        b_fc = tf.Variable(tf.random_normal([10], stddev=0.01), dtype=np.float32)
+        W_fc = tf.Variable(tf.truncated_normal([64, 10], stddev=0.1), dtype=np.float32)
+        tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W_fc), self.wd))
 
-        logit = tf.matmul(GAP, W_fc) + b_fc
+        logit = tf.matmul(GAP, W_fc)
 
         prediction = tf.argmax(logit, axis=1)
 
         return prediction, logit
 
     def build4(self, input, label, is_training=False):  #########보틀넥 o 프로젝션 숏컷o
-        W_input = tf.Variable(tf.random_normal([3, 3, 3, 16], stddev=0.01), dtype=np.float32)
+        W_input = tf.Variable(tf.truncated_normal([3, 3, 3, 16], stddev=0.1), dtype=np.float32)
+        tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W_input), self.wd))
         L_input = tf.nn.conv2d(input, W_input, strides=[1, 1, 1, 1], padding='SAME')
-        b_input = tf.Variable(tf.random_normal([16]), dtype=np.float32)
-        L_input = tf.nn.bias_add(L_input, b_input)
         L_input = tf.layers.batch_normalization(L_input, training=is_training)
         L_input = tf.nn.relu(L_input)
 
@@ -269,12 +252,13 @@ class ResNet:
 
         block5 = self.block_repeat(block4, self.make_residual_bottleneck_block, 64, is_training, 9)
 
-        GAP = tf.reduce_mean(block5, [1, 2], keepdims=False)
+        GAP = tf.reduce_mean(block5, [1, 2], keep_dims=False)
+        # GAP = tf.reduce_mean(block5, [1, 2], keepdims=False)
 
-        W_fc = tf.Variable(tf.random_normal([64, 10], stddev=0.01), dtype=np.float32)
-        b_fc = tf.Variable(tf.random_normal([10], stddev=0.01), dtype=np.float32)
+        W_fc = tf.Variable(tf.truncated_normal([64, 10], stddev=0.1), dtype=np.float32)
+        tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W_fc), self.wd))
 
-        logit = tf.matmul(GAP, W_fc) + b_fc
+        logit = tf.matmul(GAP, W_fc)
 
         prediction = tf.argmax(logit, axis=1)
 
@@ -290,12 +274,17 @@ class ResNet:
         else:
             pred, logit_ = self.build4(input, label, is_training)
 
-        loss = tf.reduce_mean((tf.nn.softmax_cross_entropy_with_logits_v2(logits=logit_, labels=label)))
+        CEE = tf.reduce_mean((tf.nn.softmax_cross_entropy_with_logits(logits=logit_, labels=label)))
+        tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(CEE), self.wd))
+
+        loss = tf.add_n(tf.get_collection('losses'))
 
         with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
             train_op = tf.train.AdamOptimizer(self.lr).minimize(loss)
 
-        return train_op, pred, loss, logit_
+        ###### L2-loss가 더해진, Training Operation에 사용되는 진짜 loss는
+        ###### 패러미터 수에 따라 그 값이 커지기 때문에 모델간 성능 비교를 위해선 loss대신 CEE(Cross Entropy Error)를 반환한다.
+        return train_op, pred, CEE, logit_
 
     def next_batch (self, num, data, label) :
         idx = np.arange(0, len(data))
