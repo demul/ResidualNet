@@ -1,6 +1,8 @@
 # ResidualNet
 Implementation of ResidualNet on CIFAR-10 dataset. test model with various option(bottleneck block, projection shortcut)
 
+## !!!현재 Validation Accuracy가 80% 언저리에서 안 올라가는 문제점이 있음.
+
 ## 여러개의 모델을 한 스크립트 안에서 돌릴려면,
 
 ### 그래프를 따로 만들어줘야 한다.
