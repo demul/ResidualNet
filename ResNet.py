@@ -1,6 +1,8 @@
 import numpy as np
 import tensorflow as tf
 import time
+import matplotlib.pyplot as plt
+
 from tensorflow.python.keras._impl.keras.datasets.cifar10 import load_data
 
 
@@ -11,10 +13,19 @@ http://solarisailab.com/archives/2325
 """
 
 class ResNet:
-    def __init__(self, input_size, lr, wd):
-        self.lr = lr
-        self.wd = wd
-        self.input_size = input_size
+    def __init__(self):
+        self.input_size = None
+        self.lr = None
+        self.wd = None
+        self.momentum = None
+        self.done_epoch = None
+        self.sampling_step = None
+
+        ###손실함수, 정확도 그래프를 그리기 위해
+        self.metric_list = {}
+        self.metric_list['losses'] = []
+        self.metric_list['test_acc'] = []
+        self.metric_list['train_acc'] = []
 
         self.graph = tf.Graph()
 
@@ -127,7 +138,7 @@ class ResNet:
         return L_input
 
     def build1(self, input, label, is_training=False):   #########보틀넥 x 프로젝션 숏컷x (논문의 구현에 가장 충실한 모델)
-        W_input = tf.Variable(tf.truncated_normal([3, 3, 3, 16], stddev=0.1), dtype=np.float32)
+        W_input = tf.Variable(tf.truncated_normal([3, 3, 3, 16], stddev=1), dtype=np.float32)
         tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W_input), self.wd))
         L_input = tf.nn.conv2d(input, W_input, strides=[1, 1, 1, 1], padding='SAME')
         L_input = tf.layers.batch_normalization(L_input, training=is_training)
@@ -184,7 +195,7 @@ class ResNet:
         return prediction, logit
 
     def build2(self, input, label, is_training=False):  #########보틀넥 x 프로젝션 숏컷o
-        W_input = tf.Variable(tf.truncated_normal([3, 3, 3, 16], stddev=0.1), dtype=np.float32)
+        W_input = tf.Variable(tf.truncated_normal([3, 3, 3, 16], stddev=1), dtype=np.float32)
         tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W_input), self.wd))
         L_input = tf.nn.conv2d(input, W_input, strides=[1, 1, 1, 1], padding='SAME')
         L_input = tf.layers.batch_normalization(L_input, training=is_training)
@@ -211,7 +222,7 @@ class ResNet:
         return prediction, logit
 
     def build3(self, input, label, is_training=False):  #########보틀넥 o 프로젝션 숏컷x
-        W_input = tf.Variable(tf.truncated_normal([3, 3, 3, 16], stddev=0.1), dtype=np.float32)
+        W_input = tf.Variable(tf.truncated_normal([3, 3, 3, 16], stddev=1), dtype=np.float32)
         tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W_input), self.wd))
         L_input = tf.nn.conv2d(input, W_input, strides=[1, 1, 1, 1], padding='SAME')
         L_input = tf.layers.batch_normalization(L_input, training=is_training)
@@ -238,7 +249,7 @@ class ResNet:
         return prediction, logit
 
     def build4(self, input, label, is_training=False):  #########보틀넥 o 프로젝션 숏컷o
-        W_input = tf.Variable(tf.truncated_normal([3, 3, 3, 16], stddev=0.1), dtype=np.float32)
+        W_input = tf.Variable(tf.truncated_normal([3, 3, 3, 16], stddev=1), dtype=np.float32)
         tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W_input), self.wd))
         L_input = tf.nn.conv2d(input, W_input, strides=[1, 1, 1, 1], padding='SAME')
         L_input = tf.layers.batch_normalization(L_input, training=is_training)
@@ -280,7 +291,7 @@ class ResNet:
         loss = tf.add_n(tf.get_collection('losses'))
 
         with tf.control_dependencies(tf.get_collection(tf.GraphKeys.UPDATE_OPS)):
-            train_op = tf.train.AdamOptimizer(self.lr).minimize(loss)
+            train_op = tf.train.MomentumOptimizer(self.lr, self.momentum).minimize(loss)
 
         ###### L2-loss가 더해진, Training Operation에 사용되는 진짜 loss는
         ###### 패러미터 수에 따라 그 값이 커지기 때문에 모델간 성능 비교를 위해선 loss대신 CEE(Cross Entropy Error)를 반환한다.
@@ -302,8 +313,15 @@ class ResNet:
         return np.asarray(data_shuffle), np.asarray(labels_shuffle)
 
 
-    def run(self, max_iter, model_kind):
-        with self.graph.as_default() :
+    def run(self, max_iter, model_kind, input_size, lr, wd, momentum, done_epoch, sampling_step):
+        self.input_size = input_size
+        self.lr = lr
+        self.wd = wd
+        self.momentum = momentum
+        self.done_epoch = done_epoch
+        self.sampling_step = sampling_step
+
+        with self.graph.as_default():
             ###cifar 10 로드
             (x_train, y_train), (x_test, y_test) = load_data()
 
@@ -342,14 +360,15 @@ class ResNet:
                     if itr % 10 == 0:
                         progress_view = 'progress : ' + '%7.6f'%(itr / batch_num * 100) + '%  loss :' + '%7.6f'%loss_
                         print(progress_view)
+                        self.metric_list['losses'].append(loss_)
 
                 with open('loss.txt', 'a') as wf:
                     epoch_time = time.time() - start_time
                     loss_info = '\nepoch: ' + '%7d' % (
-                                epoch + 1) + '  batch loss: ' + '%7.6f' % loss_ + '  time elapsed: ' + '%7.6f'%epoch_time
+                                epoch + 1 + self.done_epoch) + '  batch loss: ' + '%7.6f' % loss_ + '  time elapsed: ' + '%7.6f'%epoch_time
                     wf.write(loss_info)
 
-                if epoch % 10 == 0:
+                if epoch % self.sampling_step == 0:
                     test_accuracy = 0
 
                     start_test_time = time.time()
@@ -358,14 +377,26 @@ class ResNet:
                         tmpacc = sess.run(accuracy, feed_dict={X: input_batch, Y: label_batch, is_training: False})
                         test_accuracy = test_accuracy + tmpacc / (x_test.shape[0] // 100)
 
-                    print('test accuracy %g' % test_accuracy)
-                    with open('loss.txt', 'a') as wf:
-                        test_time = time.time() - start_test_time
-                        acc = '\ntest accuracy: ' + '%7g' % test_accuracy + '   test_time: %7.6f' % test_time
-                        wf.write(acc)
+                    inference_time_test = time.time() - start_test_time
 
-                    model_dir = './model'+str(model_kind)+ '_epoch'+ str(epoch) +'/model.ckpt'
-                    saver.save(sess, model_dir)
+                    train_accuracy = 0
+                    start_test_time = time.time()
+                    for i in range(x_train.shape[0] // 100):
+                        input_batch, label_batch = self.test_sort(100 * i, 100 * (i + 1), x_train,
+                                                                  y_train.eval(session=sess))
+                        tmpacc = sess.run(accuracy, feed_dict={X: input_batch, Y: label_batch, is_training: False})
+                        train_accuracy = train_accuracy + tmpacc / (x_train.shape[0] // 100)
+
+                    inference_time_train = time.time() - start_test_time
+
+                    self.reg_acc(test_accuracy, train_accuracy, inference_time_test, inference_time_train)
+
+                    if epoch % 20 == 0 :
+                        model_dir = './model'+str(model_kind)+ '_epoch'+ str(epoch+1+self.done_epoch) +'/model.ckpt'
+                        saver.save(sess, model_dir)
+
+            model_dir = './model' + str(model_kind) + '/model.ckpt'
+            saver.save(sess, model_dir)
             sess.close()
 
 
@@ -401,10 +432,61 @@ class ResNet:
 
             start_test_time = time.time()
             for i in range(x_test.shape[0] // 100):
-                input_batch, label_batch = self.test_sort(100 * i, 100 * (i + 1), x_test, y_test.eval(session=sess))
+                input_batch, label_batch = self.test_sort(100 * i, 100 * (i + 1), x_train, y_train.eval(session=sess))
                 tmpacc = sess.run(accuracy, feed_dict={X: input_batch, Y: label_batch, is_training: False})
                 test_accuracy = test_accuracy + tmpacc / (x_test.shape[0] // 100)
 
             print('test accuracy %g' % test_accuracy)
             test_time = time.time() - start_test_time
             print('test time %g' % test_time)
+
+    def save_acc(self):
+        x = range(0, len(self.metric_list['test_acc']), self.sampling_step)
+
+        y1 = self.metric_list['test_acc']
+        y2 = self.metric_list['train_acc']
+
+        plt.plot(x, y1, label='train_acc')
+        plt.plot(x, y2, label='test_acc')
+
+        plt.xlabel('Epoch')
+        plt.ylabel('Acc')
+
+        plt.legend(loc=4)
+        plt.grid(True)
+        plt.tight_layout()
+
+        plt.savefig('acc.png')
+
+        plt.close()
+
+    def save_loss(self):
+        x = range(0, len(self.metric_list['losses']), self.sampling_step)
+
+        y1 = self.metric_list['losses']
+
+        plt.plot(x, y1, label='loss')
+
+        plt.xlabel('Iter')
+        plt.ylabel('Loss')
+
+        plt.legend(loc=4)
+        plt.grid(True)
+        plt.tight_layout()
+
+        plt.savefig('loss.png')
+
+        plt.close()
+
+    def reg_acc(self, test_accuracy, train_accuracy, inference_time_test, inference_time_train) :
+        print('test accuracy %g' % test_accuracy)
+        self.metric_list['test_acc'].append(test_accuracy)
+        with open('loss.txt', 'a') as wf:
+            acc = '\ntest accuracy: ' + '%7g' % test_accuracy + '   inference_time: %7.6f' % inference_time_test
+            wf.write(acc)
+
+        print('train accuracy %g' % train_accuracy)
+        self.metric_list['test_acc'].append(train_accuracy)
+        with open('loss.txt', 'a') as wf:
+            acc = '\ntrain accuracy: ' + '%7g' % train_accuracy + '   inference_time: %7.6f' % inference_time_train
+            wf.write(acc)
