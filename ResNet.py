@@ -155,7 +155,7 @@ class ResNet:
         return L_input
 
     def build1(self, input, label, is_training=False):   #########보틀넥 x 프로젝션 숏컷x (논문의 구현에 가장 충실한 모델)
-        W_input = tf.Variable(tf.truncated_normal([3, 3, 3, 16], stddev=1), dtype=np.float32)
+        W_input = tf.Variable(tf.truncated_normal([3, 3, 3, 16], stddev=tf.sqrt(2/3)), dtype=np.float32)
         tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W_input), self.wd))
         L_input = tf.nn.conv2d(input, W_input, strides=[1, 1, 1, 1], padding='SAME')
         L_input = tf.layers.batch_normalization(L_input, training=is_training)
@@ -172,7 +172,7 @@ class ResNet:
         GAP = tf.reduce_mean(block5, [1, 2], keep_dims=False)
         # GAP = tf.reduce_mean(block5, [1, 2], keepdims=False)
 
-        W_fc = tf.Variable(tf.truncated_normal([64, 10], stddev=0.1), dtype=np.float32)
+        W_fc = tf.Variable(tf.truncated_normal([64, 10], stddev=tf.sqrt(2/64)), dtype=np.float32)
         tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W_fc), self.wd))
 
         logit = tf.matmul(GAP, W_fc)
@@ -212,7 +212,7 @@ class ResNet:
         return prediction, logit
 
     def build2(self, input, label, is_training=False):  #########보틀넥 x 프로젝션 숏컷o
-        W_input = tf.Variable(tf.truncated_normal([3, 3, 3, 16], stddev=1), dtype=np.float32)
+        W_input = tf.Variable(tf.truncated_normal([3, 3, 3, 16], stddev=tf.sqrt(2/3)), dtype=np.float32)
         tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W_input), self.wd))
         L_input = tf.nn.conv2d(input, W_input, strides=[1, 1, 1, 1], padding='SAME')
         L_input = tf.layers.batch_normalization(L_input, training=is_training)
@@ -229,7 +229,7 @@ class ResNet:
         GAP = tf.reduce_mean(block5, [1, 2], keep_dims=False)
         # GAP = tf.reduce_mean(block5, [1, 2], keepdims=False)
 
-        W_fc = tf.Variable(tf.truncated_normal([64, 10], stddev=0.1), dtype=np.float32)
+        W_fc = tf.Variable(tf.truncated_normal([64, 10], stddev=tf.sqrt(2/64)), dtype=np.float32)
         tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W_fc), self.wd))
 
         logit = tf.matmul(GAP, W_fc)
@@ -239,7 +239,7 @@ class ResNet:
         return prediction, logit
 
     def build3(self, input, label, is_training=False):  #########보틀넥 o 프로젝션 숏컷x
-        W_input = tf.Variable(tf.truncated_normal([3, 3, 3, 16], stddev=1), dtype=np.float32)
+        W_input = tf.Variable(tf.truncated_normal([3, 3, 3, 16], stddev=tf.sqrt(2/3)), dtype=np.float32)
         tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W_input), self.wd))
         L_input = tf.nn.conv2d(input, W_input, strides=[1, 1, 1, 1], padding='SAME')
         L_input = tf.layers.batch_normalization(L_input, training=is_training)
@@ -256,7 +256,7 @@ class ResNet:
         GAP = tf.reduce_mean(block5, [1, 2], keep_dims=False)
         # GAP = tf.reduce_mean(block5, [1, 2], keepdims=False)
 
-        W_fc = tf.Variable(tf.truncated_normal([64, 10], stddev=0.1), dtype=np.float32)
+        W_fc = tf.Variable(tf.truncated_normal([64, 10], stddev=tf.sqrt(2/64)), dtype=np.float32)
         tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W_fc), self.wd))
 
         logit = tf.matmul(GAP, W_fc)
@@ -266,7 +266,7 @@ class ResNet:
         return prediction, logit
 
     def build4(self, input, label, is_training=False):  #########보틀넥 o 프로젝션 숏컷o
-        W_input = tf.Variable(tf.truncated_normal([3, 3, 3, 16], stddev=1), dtype=np.float32)
+        W_input = tf.Variable(tf.truncated_normal([3, 3, 3, 16], stddev=tf.sqrt(2/3)), dtype=np.float32)
         tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W_input), self.wd))
         L_input = tf.nn.conv2d(input, W_input, strides=[1, 1, 1, 1], padding='SAME')
         L_input = tf.layers.batch_normalization(L_input, training=is_training)
@@ -283,7 +283,7 @@ class ResNet:
         GAP = tf.reduce_mean(block5, [1, 2], keep_dims=False)
         # GAP = tf.reduce_mean(block5, [1, 2], keepdims=False)
 
-        W_fc = tf.Variable(tf.truncated_normal([64, 10], stddev=0.1), dtype=np.float32)
+        W_fc = tf.Variable(tf.truncated_normal([64, 10], stddev=tf.sqrt(2/64)), dtype=np.float32)
         tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W_fc), self.wd))
 
         logit = tf.matmul(GAP, W_fc)
@@ -332,7 +332,7 @@ class ResNet:
             pred, logit_ = self.build4(input, label, is_training)
 
         CEE = tf.reduce_mean((tf.nn.softmax_cross_entropy_with_logits(logits=logit_, labels=label)))
-        tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(CEE), self.wd))
+        tf.add_to_collection('losses', CEE)
 
         loss = tf.add_n(tf.get_collection('losses'))
 
@@ -498,8 +498,8 @@ class ResNet:
         y1 = self.metric_list['test_acc']
         y2 = self.metric_list['train_acc']
 
-        plt.plot(x, y1, label='train_acc')
-        plt.plot(x, y2, label='test_acc')
+        plt.plot(x, y1, label='test_acc')
+        plt.plot(x, y2, label='train_acc')
 
         plt.xlabel('Epoch')
         plt.ylabel('Acc')
