@@ -2,6 +2,7 @@ import numpy as np
 import tensorflow as tf
 import time
 import matplotlib.pyplot as plt
+from augment import augment
 
 from tensorflow.python.keras._impl.keras.datasets.cifar10 import load_data
 
@@ -19,7 +20,8 @@ class ResNet:
         self.wd = None
         self.momentum = None
         self.done_epoch = None
-        self.sampling_step = None
+        self.acc_sampling_step = None
+        self.loss_sampling_step = 10
 
         ###손실함수, 정확도 그래프를 그리기 위해
         self.metric_list = {}
@@ -27,7 +29,7 @@ class ResNet:
         self.metric_list['test_acc'] = []
         self.metric_list['train_acc'] = []
 
-        self.graph = tf.Graph()
+        self.graph = None
 
     ###########################논문에서는 CIFAR-10의 경우 보틀넥도, 프로젝션 숏컷도 사용하지 않았지만
     ###########################이 실험에서는 각각의 사용유무에 따른 4개의 모델을 만들어 놓고 실험결과를 보도록 한다.
@@ -131,6 +133,21 @@ class ResNet:
         L3 = tf.nn.relu(L3)
 
         return L3
+
+    def make_convolution_block_downsample(self, input, ch, is_training):
+        W1 = tf.Variable(tf.truncated_normal([3, 3, ch, ch], stddev=tf.sqrt(2/ch)), dtype=np.float32)
+        tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W1), self.wd))
+        L1 = tf.nn.conv2d(input, W1, strides=[1, 1, 1, 1], padding='SAME')
+        L1 = tf.layers.batch_normalization(L1, training=is_training)
+        L1 = tf.nn.relu(L1)
+
+        W2 = tf.Variable(tf.truncated_normal([3, 3, ch, ch * 2], stddev=tf.sqrt(2/ch)), dtype=np.float32)
+        tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W2), self.wd))
+        L2 = tf.nn.conv2d(L1, W2, strides=[1, 2, 2, 1], padding='SAME')
+        L2 = tf.layers.batch_normalization(L2, training=is_training)
+        L2 = tf.nn.relu(L2)
+
+        return L2
 
     def block_repeat(self, L_input, func_, ch, is_training, iter):
         for _ in range(iter) :
@@ -275,6 +292,33 @@ class ResNet:
 
         return prediction, logit
 
+    def build5(self, input, label, is_training=False):
+        W_input = tf.Variable(tf.truncated_normal([3, 3, 3, 16], stddev=tf.sqrt(2/3)), dtype=np.float32)
+        tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W_input), self.wd))
+        L_input = tf.nn.conv2d(input, W_input, strides=[1, 1, 1, 1], padding='SAME')
+        L_input = tf.layers.batch_normalization(L_input, training=is_training)
+        L_input = tf.nn.relu(L_input)
+
+        block1 = self.block_repeat(L_input, self.make_residual_block, 16, is_training, 9 - 1)
+        block2 = self.make_convolution_block_downsample(block1, 16, is_training)
+
+        block3 = self.block_repeat(block2, self.make_residual_block, 32, is_training, 9 - 1)
+        block4 = self.make_convolution_block_downsample(block3, 32, is_training)
+
+        block5 = self.block_repeat(block4, self.make_residual_block, 64, is_training, 9)
+
+        GAP = tf.reduce_mean(block5, [1, 2], keep_dims=False)
+        # GAP = tf.reduce_mean(block5, [1, 2], keepdims=False)
+
+        W_fc = tf.Variable(tf.truncated_normal([64, 10], stddev=tf.sqrt(2/64)), dtype=np.float32)
+        tf.add_to_collection('losses', tf.multiply(tf.nn.l2_loss(W_fc), self.wd))
+
+        logit = tf.matmul(GAP, W_fc)
+
+        prediction = tf.argmax(logit, axis=1)
+
+        return prediction, logit
+
     def train(self, input, label, is_training, model_kind=1):
         if model_kind == 1:
             pred, logit_ = self.build1(input, label, is_training)
@@ -282,6 +326,8 @@ class ResNet:
             pred, logit_ = self.build2(input, label, is_training)
         elif model_kind == 3:
             pred, logit_ = self.build3(input, label, is_training)
+        elif model_kind == 5:
+            pred, logit_ = self.build5(input, label, is_training)
         else:
             pred, logit_ = self.build4(input, label, is_training)
 
@@ -301,8 +347,12 @@ class ResNet:
         idx = np.arange(0, len(data))
         np.random.shuffle(idx)
         idx = idx[:num]
-        data_shuffle = [data[i] for i in idx]
-        label_shuffle = [label[i] for i in idx]
+        data_shuffle = []
+        label_shuffle = []
+        for i in idx :
+            distorted_data = augment(data[i])
+            data_shuffle.append(distorted_data)
+            label_shuffle.append(label[i])
 
         return np.asarray(data_shuffle), np.asarray(label_shuffle)
 
@@ -319,7 +369,9 @@ class ResNet:
         self.wd = wd
         self.momentum = momentum
         self.done_epoch = done_epoch
-        self.sampling_step = sampling_step
+        self.acc_sampling_step = sampling_step
+
+        self.graph = tf.Graph()
 
         with self.graph.as_default():
             ###cifar 10 로드
@@ -357,7 +409,7 @@ class ResNet:
                     input_batch, label_batch = self.next_batch(self.input_size, x_train, y_train.eval(session=sess))
                     _, loss_ = sess.run([train_op, loss], feed_dict={X: input_batch, Y: label_batch, is_training: True})
 
-                    if itr % 10 == 0:
+                    if itr % self.loss_sampling_step == 0:
                         progress_view = 'progress : ' + '%7.6f'%(itr / batch_num * 100) + '%  loss :' + '%7.6f'%loss_
                         print(progress_view)
                         self.metric_list['losses'].append(loss_)
@@ -368,7 +420,7 @@ class ResNet:
                                 epoch + 1 + self.done_epoch) + '  batch loss: ' + '%7.6f' % loss_ + '  time elapsed: ' + '%7.6f'%epoch_time
                     wf.write(loss_info)
 
-                if epoch % self.sampling_step == 0:
+                if epoch % self.acc_sampling_step == 0:
                     test_accuracy = 0
 
                     start_test_time = time.time()
@@ -440,8 +492,8 @@ class ResNet:
             test_time = time.time() - start_test_time
             print('test time %g' % test_time)
 
-    def save_acc(self):
-        x = range(0, len(self.metric_list['test_acc']), self.sampling_step)
+    def save_acc(self, model_kind):
+        x = range(1, self.acc_sampling_step * len(self.metric_list['test_acc']) + 1, self.acc_sampling_step)
 
         y1 = self.metric_list['test_acc']
         y2 = self.metric_list['train_acc']
@@ -456,12 +508,13 @@ class ResNet:
         plt.grid(True)
         plt.tight_layout()
 
-        plt.savefig('acc.png')
+        file_name = 'acc' + str(model_kind) + '.png'
+        plt.savefig(file_name)
 
         plt.close()
 
-    def save_loss(self):
-        x = range(0, len(self.metric_list['losses']), self.sampling_step)
+    def save_loss(self, model_kind):
+        x = range(1, self.loss_sampling_step * len(self.metric_list['losses']) + 1, self.loss_sampling_step)
 
         y1 = self.metric_list['losses']
 
@@ -474,7 +527,8 @@ class ResNet:
         plt.grid(True)
         plt.tight_layout()
 
-        plt.savefig('loss.png')
+        file_name = 'loss' + str (model_kind) + '.png'
+        plt.savefig(file_name)
 
         plt.close()
 
@@ -486,7 +540,7 @@ class ResNet:
             wf.write(acc)
 
         print('train accuracy %g' % train_accuracy)
-        self.metric_list['test_acc'].append(train_accuracy)
+        self.metric_list['train_acc'].append(train_accuracy)
         with open('loss.txt', 'a') as wf:
             acc = '\ntrain accuracy: ' + '%7g' % train_accuracy + '   inference_time: %7.6f' % inference_time_train
             wf.write(acc)
